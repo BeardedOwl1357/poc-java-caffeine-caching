@@ -16,6 +16,8 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A simple JAX-RS resource to greet you. Examples:
@@ -27,6 +29,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
  */
 @Path("/simple-greet")
 public class SimpleGreetResource {
+
+    private static Logger LOGGER = LoggerFactory.getLogger(SimpleGreetResource.class.getName());
 
     private static final String PERSONALIZED_GETS_COUNTER_NAME = "personalizedGets";
     private static final String PERSONALIZED_GETS_COUNTER_DESCRIPTION = "Counts personalized GET operations";
@@ -65,6 +69,8 @@ public class SimpleGreetResource {
            unit = MetricUnits.SECONDS,
            absolute = true)
     public String getMessage(@PathParam("name") String name) {
+        LOGGER.info("Greeting {}",name);
+        LOGGER.debug("Yooooooooooo bro");
         return String.format("Hello %s", name);
     }
 
