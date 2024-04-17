@@ -1,133 +1,82 @@
 # caffeine-poc
 
-Minimal Helidon MP project suitable to start from scratch.
+A POC for figuring out how caffeine cache works. This is built over [Helidon MP Quickstart](https://helidon.io/docs/v3/mp/guides/quickstart) project with me using [GitHub - ben-manes/caffeine: A high performance caching library for Java](https://github.com/ben-manes/caffeine) library and some loggers (SLF4J and Log4j2).
+
+
+## Refresh and Expire behavior
+
+For a cache defined as follows
+```java
+private LoadingCache<String,String> messageCache = Caffeine.newBuilder()
+        .expireAfterWrite(2, TimeUnit.MINUTES)
+        .refreshAfterWrite(1,TimeUnit.MINUTES)
+        .evictionListener((key,value,reason) -> {
+            LOGGER.warn("Expiring cache key '{}' with value '{}' --- '{}'",key,value,reason);
+        })
+        .removalListener((key,value,reason) -> {
+            LOGGER.warn("Removing cache key '{}' with value '{}' --- '{}'",key,value,reason) ;
+        })
+        .recordStats()
+        .build(this::makeMessage);
+
+/**
+ * Simulates the behavior of a function which takes "too" much time to calculate data
+ * Cachine is supposed to reduce the calls to this function
+ * @param message   : String
+ * @return  Customised message
+ * @throws  InterruptedException
+ */
+private String makeMessage(String message) throws InterruptedException {
+        LOGGER.warn("Could not find value for {} key in cache. Building....",message);
+        LOGGER.info("Making current thread sleep for {} seconds",3);
+        Thread.sleep(3000);
+        return String.format("%s + %s",message,message.length());
+        }
+            
+```
+
+- If the value does not exist in cache, cache uses the loading function (in this case, `makeMessage()`) to build a new value and return it
+- Access to the same value before the refresh interval is instantly returned. The eligibility for "being refreshed" is checked each time the value is accessed. 
+- If we have accessed the value after it has been marked for refresh, cache returns the value and asynchronously loads a new value
+- If we have accessed the value after it has been marked for expiry, it is evicted from the cache and a new value is loaded. **Also, when this value is evicted, cache performs a maintenance task in a separate thread which evicts all the values which have been marked for expiry**
+
+> Eviction         : eviction means removal due to the policy (like, expireAfterAccess or expireAfterWrite)
+
+> Invalidation     : invalidation means manual removal by the caller
+
+> Removal          : removal occurs as a consequence of invalidation or eviction _(If a value is refreshed, it is marked as `REPLACED` and is considered a removal)_
+
+# Info provided by helidon and me
 
 ## Build and run
-
 
 With JDK17+
 ```bash
 mvn package
 java -jar target/caffeine-poc.jar
+
+# To run in debug mode and skip tests
+# Use Remote JVM Debug on port 7044
+mvn package -DskipTests ;
+java -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=7044  -jar target/caffeine-poc.jar ;
+
+# Do it in one line 
+mvn package -DskipTests && java -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=7044  -jar target/caffeine-poc.jar
+
+
 ```
 
-## Exercise the application
-```
-curl -X GET http://localhost:8080/simple-greet
+## Usage
+
+```bash
+curl -X GET http://localhost:8081/greet
 {"message":"Hello World!"}
-```
 
-```
-curl -X GET http://localhost:8080/greet
-{"message":"Hello World!"}
-
-curl -X GET http://localhost:8080/greet/Joe
+curl -X GET http://localhost:8081/greet/Joe
 {"message":"Hello Joe!"}
 
-curl -X PUT -H "Content-Type: application/json" -d '{"greeting" : "Hola"}' http://localhost:8080/greet/greeting
+curl -X PUT -H "Content-Type: application/json" -d '{"greeting" : "Hola"}' http://localhost:8081/greet/greeting
 
-curl -X GET http://localhost:8080/greet/Jose
+curl -X GET http://localhost:8081/greet/Jose
 {"message":"Hola Jose!"}
 ```
-
-
-
-## Try metrics
-
-```
-# Prometheus Format
-curl -s -X GET http://localhost:8080/metrics
-# TYPE base:gc_g1_young_generation_count gauge
-. . .
-
-# JSON Format
-curl -H 'Accept: application/json' -X GET http://localhost:8080/metrics
-{"base":...
-. . .
-```
-
-
-
-## Try health
-
-```
-curl -s -X GET http://localhost:8080/health
-{"outcome":"UP",...
-
-```
-
-
-
-## Building a Native Image
-
-Make sure you have GraalVM locally installed:
-
-```
-$GRAALVM_HOME/bin/native-image --version
-```
-
-Build the native image using the native image profile:
-
-```
-mvn package -Pnative-image
-```
-
-This uses the helidon-maven-plugin to perform the native compilation using your installed copy of GraalVM. It might take a while to complete.
-Once it completes start the application using the native executable (no JVM!):
-
-```
-./target/caffeine-poc
-```
-
-Yep, it starts fast. You can exercise the application’s endpoints as before.
-
-
-## Building the Docker Image
-
-```
-docker build -t caffeine-poc .
-```
-
-## Running the Docker Image
-
-```
-docker run --rm -p 8080:8080 caffeine-poc:latest
-```
-
-Exercise the application as described above.
-                                
-
-## Building a Custom Runtime Image
-
-Build the custom runtime image using the jlink image profile:
-
-```
-mvn package -Pjlink-image
-```
-
-This uses the helidon-maven-plugin to perform the custom image generation.
-After the build completes it will report some statistics about the build including the reduction in image size.
-
-The target/caffeine-poc-jri directory is a self contained custom image of your application. It contains your application,
-its runtime dependencies and the JDK modules it depends on. You can start your application using the provide start script:
-
-```
-./target/caffeine-poc-jri/bin/start
-```
-
-Class Data Sharing (CDS) Archive
-Also included in the custom image is a Class Data Sharing (CDS) archive that improves your application’s startup
-performance and in-memory footprint. You can learn more about Class Data Sharing in the JDK documentation.
-
-The CDS archive increases your image size to get these performance optimizations. It can be of significant size (tens of MB).
-The size of the CDS archive is reported at the end of the build output.
-
-If you’d rather have a smaller image size (with a slightly increased startup time) you can skip the creation of the CDS
-archive by executing your build like this:
-
-```
-mvn package -Pjlink-image -Djlink.image.addClassDataSharingArchive=false
-```
-
-For more information on available configuration options see the helidon-maven-plugin documentation.
-                                

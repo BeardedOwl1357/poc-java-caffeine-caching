@@ -1,21 +1,22 @@
 
 package me.beardedowl.caffeine;
 
-import java.util.Collections;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
-import org.eclipse.microprofile.metrics.MetricUnits;
-import org.eclipse.microprofile.metrics.annotation.Counted;
-import org.eclipse.microprofile.metrics.annotation.Timed;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import jakarta.enterprise.context.ApplicationScoped;
+
 import jakarta.ws.rs.PathParam;
 
-import jakarta.enterprise.context.RequestScoped;
-import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.MediaType;
 
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,50 +29,96 @@ import org.slf4j.LoggerFactory;
  * The message is returned as a JSON object.
  */
 @Path("/simple-greet")
+@ApplicationScoped
 public class SimpleGreetResource {
 
     private static Logger LOGGER = LoggerFactory.getLogger(SimpleGreetResource.class.getName());
 
-    private static final String PERSONALIZED_GETS_COUNTER_NAME = "personalizedGets";
-    private static final String PERSONALIZED_GETS_COUNTER_DESCRIPTION = "Counts personalized GET operations";
-    private static final String GETS_TIMER_NAME = "allGets";
-    private static final String GETS_TIMER_DESCRIPTION = "Tracks all GET operations";
-    private final String message;
+    private LoadingCache<String,String> messageCache = Caffeine.newBuilder()
+            .expireAfterWrite(2, TimeUnit.MINUTES)
+            .refreshAfterWrite(1,TimeUnit.MINUTES)
+            /**
+             *  Eviction         : eviction means removal due to the policy
+             *  Invalidation     : invalidation means manual removal by the caller
+             *  Removal          : removal occurs as a consequence of invalidation or eviction
+             */
+            .evictionListener((key,value,reason) -> {
+                LOGGER.warn("Expiring cache key '{}' with value '{}' --- '{}'",key,value,reason);
+            })
+            .removalListener((key,value,reason) -> {
+                LOGGER.warn("Removing cache key '{}' with value '{}' --- '{}'",key,value,reason) ;
+            })
+            .recordStats()
+            .build(this::makeMessage);
 
-    @Inject
-    public SimpleGreetResource(@ConfigProperty(name = "app.greeting") String message) {
-        this.message = message;
+    /**
+     * Converts the cache into a string and returns it to user
+     * Note that this does not refresh the cache BUT it removes the entries which have been marked as expired
+     * Also, I believe that both the key and value objects should have toString() overridden
+     * @return  Cache data in a key-value pair
+     */
+    @GET
+    @Path("/cache/message/data")
+    public String getMessageCacheData(){
+        Instant start = Instant.now();
+        String fName = "getMessageCacheData";
+        try{
+            return messageCache.asMap().entrySet().toString();
+        } finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} operation completed in {} ms", fName,duration.toMillis());
+        }
     }
 
     /**
-     * Return a worldly greeting message.
-     *
-     * @return {@link Message}
+     * Get stats recorded by cache
+     * The ability to record stats must be activated while building the cache
+     * @return Cache stats
      */
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
-    public Message getDefaultMessage() {
-        String msg = String.format("%s %s!", message, "World");
-        Message message = new Message();
-        message.setMessage(msg);
-        return message;
+    @Path("/cache/message/stats")
+    public String getMessageCacheStats(){
+        Instant start = Instant.now();
+        String fName = "getMessageCacheStats";
+        try{
+            return messageCache.stats().toString();
+        } finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} operation completed in {} ms", fName,duration.toMillis());
+        }
     }
 
-
+    /**
+     * An endpoint which returns message based on the provided name
+     * @param name  : A string
+     * @return      : Message
+     */
     @Path("/{name}")
     @GET
-    @Produces(MediaType.APPLICATION_JSON)
-    @Counted(name = PERSONALIZED_GETS_COUNTER_NAME,
-             absolute = true,
-             description = PERSONALIZED_GETS_COUNTER_DESCRIPTION)
-    @Timed(name = GETS_TIMER_NAME,
-           description = GETS_TIMER_DESCRIPTION,
-           unit = MetricUnits.SECONDS,
-           absolute = true)
     public String getMessage(@PathParam("name") String name) {
-        LOGGER.info("Greeting {}",name);
-        LOGGER.debug("Yooooooooooo bro");
-        return String.format("Hello %s", name);
+        Instant start = Instant.now();
+        String fName = "getMessage" ;
+        try{
+            LOGGER.info("Greeting {}",name);
+            return messageCache.get(name);
+        } finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} operation completed in {} ms", fName, duration.toMillis());
+        }
+    }
+
+    /**
+     * Simulates the behavior of a function which takes "too" much time to calculate data
+     * Cachine is supposed to reduce the calls to this function
+     * @param message   : String
+     * @return  Customised message
+     * @throws  InterruptedException
+     */
+    private String makeMessage(String message) throws InterruptedException {
+        LOGGER.warn("Could not find value for {} key in cache. Building....",message);
+        LOGGER.info("Making current thread sleep for {} seconds",3);
+        Thread.sleep(3000);
+        return String.format("%s + %s",message,message.length());
     }
 
 }
