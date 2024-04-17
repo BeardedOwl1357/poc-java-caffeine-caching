@@ -32,4 +32,12 @@ public class Message {
     public String getGreeting() {
         return this.greeting;
     }
+
+    @Override
+    public String toString() {
+        return "Message{" +
+                "message='" + message + '\'' +
+                ", greeting='" + greeting + '\'' +
+                '}';
+    }
 }

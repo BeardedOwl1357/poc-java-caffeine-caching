@@ -14,6 +14,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 @ApplicationScoped
 public class GreetingProvider {
     private final AtomicReference<String> message = new AtomicReference<>();
+    private final AtomicReference<Boolean> raiseException = new AtomicReference<>();
 
     /**
      * Create a new greeting provider, reading the message from configuration.
@@ -21,8 +22,12 @@ public class GreetingProvider {
      * @param message greeting to use
      */
     @Inject
-    public GreetingProvider(@ConfigProperty(name = "app.greeting") String message) {
+    public GreetingProvider(
+            @ConfigProperty(name = "app.greeting") String message,
+            @ConfigProperty(name = "app.raise.exception") Boolean raiseException)
+    {
         this.message.set(message);
+        this.raiseException.set(raiseException);
     }
 
     String getMessage() {
@@ -31,5 +36,13 @@ public class GreetingProvider {
 
     void setMessage(String message) {
         this.message.set(message);
+    }
+
+
+    void setRaiseException(boolean raiseException){
+        this.raiseException.set(raiseException);
+    }
+    public AtomicReference<Boolean> getRaiseException() {
+        return raiseException;
     }
 }

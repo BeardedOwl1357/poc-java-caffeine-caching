@@ -1,23 +1,24 @@
 
 package me.beardedowl.caffeine;
 
-import jakarta.enterprise.context.RequestScoped;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.PUT;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
-import org.eclipse.microprofile.openapi.annotations.enums.SchemaType;
-import org.eclipse.microprofile.openapi.annotations.media.Content;
-import org.eclipse.microprofile.openapi.annotations.media.Schema;
-import org.eclipse.microprofile.openapi.annotations.parameters.RequestBody;
-import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
-import org.eclipse.microprofile.openapi.annotations.responses.APIResponses;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A simple JAX-RS resource to greet you. Examples:
@@ -34,13 +35,34 @@ import org.eclipse.microprofile.openapi.annotations.responses.APIResponses;
  * The message is returned as a JSON object.
  */
 @Path("/greet")
-@RequestScoped
+@ApplicationScoped
 public class GreetResource {
 
     /**
      * The greeting message provider.
      */
     private final GreetingProvider greetingProvider;
+
+    private static Logger LOGGER = LoggerFactory.getLogger(GreetResource.class.getName());
+
+    private Set<String> invalidNames = new HashSet<>();
+
+    private LoadingCache<String,Optional<Message>> messageCache = Caffeine.newBuilder()
+            .expireAfterWrite(2, TimeUnit.MINUTES)
+            .refreshAfterWrite(1,TimeUnit.MINUTES)
+            /**
+             *  Eviction         : eviction means removal due to the policy
+             *  Invalidation     : invalidation means manual removal by the caller
+             *  Removal          : removal occurs as a consequence of invalidation or eviction
+             */
+            .evictionListener((key,value,reason) -> {
+                LOGGER.warn("Expiring cache key '{}' with value '{}' --- '{}'",key,value,reason);
+            })
+            .removalListener((key,value,reason) -> {
+                LOGGER.warn("Removing cache key '{}' with value '{}' --- '{}'",key,value,reason) ;
+            })
+            .recordStats()
+            .build(this::createResponse);
 
     /**
      * Using constructor injection to get a configuration property.
@@ -61,7 +83,15 @@ public class GreetResource {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public Message getDefaultMessage() {
-        return createResponse("World");
+        String fName = "getDefaultMessage";
+        Instant start = Instant.now();
+        try{
+            return messageCache.get("World").get();
+        }
+        finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} completed in {} ms",fName,duration.toMillis());
+        }
     }
 
     /**
@@ -74,42 +104,118 @@ public class GreetResource {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public Message getMessage(@PathParam("name") String name) {
-        return createResponse(name);
+        String fName = "getMessage";
+        Instant start = Instant.now();
+        try{
+            return messageCache.get(name).get();
+        }
+        catch(NoSuchElementException e){
+            LOGGER.error("No value present");
+            throw e;
+        }
+        finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} completed in {} ms",fName,duration.toMillis());
+        }
+    }
+
+    @POST
+    @Path("/invalid/{name}")
+    public Response addInvalidName(@PathParam("name") String name){
+        String fName = "addInvalidName";
+        Instant start = Instant.now();
+        try{
+            LOGGER.info("Adding {} to invalidNames list",name);
+            invalidNames.add(name);
+            return Response.status(Response.Status.OK).entity(invalidNames.toString()).build();
+        }
+        finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} completed in {} ms",fName,duration.toMillis());
+        }
+
+    }
+
+    @PATCH
+    @Path("/toggle-raise-exception")
+    public Response toggleRaiseException(){
+        String fName = "toggleRaiseException";
+        Instant start = Instant.now();
+        try{
+            boolean newValue = ! greetingProvider.getRaiseException().get();
+            greetingProvider.setRaiseException(newValue);
+            String message = String.format("New value of raiseException variable is : %s",newValue);
+            return Response.status(Response.Status.OK).entity(message).build();
+        }
+        finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} completed in {} ms",fName,duration.toMillis());
+        }
     }
 
     /**
-     * Set the greeting to use in future messages.
+     * This returns an object of Message class which has been created based on the value passed to the function
+     * This is used by cache for loading new data
+     * We can simulate behavior of cache when we are not able to get data (and an exception is thrown) by toggling the value of "raiseException" behavior
+     * For this, use the PATCH /greet/toggle-raise-exception
      *
-     * @param message Message containing the new greeting
-     * @return {@link Response}
+     * @param who
+     * @return
+     * @throws InterruptedException
      */
-    @Path("/greeting")
-    @PUT
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
-    @RequestBody(name = "greeting",
-            required = true,
-            content = @Content(mediaType = "application/json",
-                    schema = @Schema(type = SchemaType.OBJECT, requiredProperties = { "greeting" })))
-    @APIResponses({
-            @APIResponse(name = "normal", responseCode = "204", description = "Greeting updated"),
-            @APIResponse(name = "missing 'greeting'", responseCode = "400",
-                    description = "JSON did not contain setting for 'greeting'")})
-    public Response updateGreeting(Message message) {
-
-        if (message.getGreeting() == null || message.getGreeting().isEmpty()) {
-            Message error = new Message();
-            error.setMessage("No greeting provided");
-            return Response.status(Response.Status.BAD_REQUEST).entity(error).build();
+    private Optional<Message> createResponse(String who) throws InterruptedException {
+        if(greetingProvider.getRaiseException().get()){
+            LOGGER.error("Returning null value...");
+            return Optional.empty();
         }
-
-        greetingProvider.setMessage(message.getGreeting());
-        return Response.status(Response.Status.NO_CONTENT).build();
-    }
-
-    private Message createResponse(String who) {
+        else if(invalidNames.contains(who)){
+            LOGGER.error("Invalid name...");
+            throw new RuntimeException();
+        }
+        LOGGER.warn("Message not found in cache for {}. Building...",who);
+        LOGGER.info("Thread sleeping for {} ms",3000);
+        Thread.sleep(3000); //ms
         String msg = String.format("%s %s!", greetingProvider.getMessage(), who);
 
-        return new Message(msg);
+        return Optional.of(new Message(msg));
     }
+
+    // Endpoints for cache info
+    /**
+     * Converts the cache into a string and returns it to user
+     * Note that this does not refresh the cache BUT it removes the entries which have been marked as expired
+     * Also, I believe that both the key and value objects should have toString() overridden
+     * @return  Cache data in a key-value pair
+     */
+    @GET
+    @Path("/cache/message/data")
+    public String getMessageCacheData(){
+        Instant start = Instant.now();
+        String fName = "getMessageCacheData";
+        try{
+            return messageCache.asMap().entrySet().toString();
+        } finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} operation completed in {} ms", fName,duration.toMillis());
+        }
+    }
+
+    /**
+     * Get stats recorded by cache
+     * The ability to record stats must be activated while building the cache
+     * @return Cache stats
+     */
+    @GET
+    @Path("/cache/message/stats")
+    public String getMessageCacheStats(){
+        Instant start = Instant.now();
+        String fName = "getMessageCacheStats";
+        try{
+            return messageCache.stats().toString();
+        } finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} operation completed in {} ms", fName,duration.toMillis());
+        }
+    }
+
 }
