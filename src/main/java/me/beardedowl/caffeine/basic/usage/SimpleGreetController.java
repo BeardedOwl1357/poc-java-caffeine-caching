@@ -1,22 +1,28 @@
 
-package me.beardedowl.caffeine;
+package me.beardedowl.caffeine.basic.usage;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import jakarta.json.Json;
+import jakarta.json.JsonObject;
 import jakarta.ws.rs.PathParam;
 
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import me.beardedowl.caffeine.singleton.cache.CacheSingleton;
+import me.beardedowl.caffeine.singleton.cache.UserDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,9 +36,9 @@ import org.slf4j.LoggerFactory;
  */
 @Path("/simple-greet")
 @ApplicationScoped
-public class SimpleGreetResource {
+public class SimpleGreetController {
 
-    private static Logger LOGGER = LoggerFactory.getLogger(SimpleGreetResource.class.getName());
+    private static Logger LOGGER = LoggerFactory.getLogger(SimpleGreetController.class.getName());
 
     private LoadingCache<String,String> messageCache = Caffeine.newBuilder()
             .expireAfterWrite(2, TimeUnit.MINUTES)
@@ -70,6 +76,20 @@ public class SimpleGreetResource {
         }
     }
 
+    @GET
+    @Path("/cache/singleton/message/data")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Set<Map.Entry<String, List<UserDTO>>> getSingletonCacheMessageCacheData(){
+        Instant start = Instant.now();
+        String fName = "getSingletonCacheMessageCacheData";
+        try{
+            return CacheSingleton.getInstance().getMessageCache().asMap().entrySet();
+        } finally {
+            Duration duration = Duration.between(start,Instant.now());
+            LOGGER.info("{} operation completed in {} ms", fName,duration.toMillis());
+        }
+    }
+
     /**
      * Get stats recorded by cache
      * The ability to record stats must be activated while building the cache
@@ -77,11 +97,18 @@ public class SimpleGreetResource {
      */
     @GET
     @Path("/cache/message/stats")
-    public String getMessageCacheStats(){
+    @Produces(MediaType.APPLICATION_JSON)
+    public JsonObject getMessageCacheStats(){
         Instant start = Instant.now();
         String fName = "getMessageCacheStats";
         try{
-            return messageCache.stats().toString();
+            return Json.createObjectBuilder()
+                    .add("cacheHashcode", CacheSingleton.getInstance().getMessageCache().hashCode())
+                    .add("evictionCount",CacheSingleton.getInstance().getMessageCache().stats().evictionCount())
+                    .add("averageLoadPenalty",CacheSingleton.getInstance().getMessageCache().stats().averageLoadPenalty())
+                    .add("hitCount",CacheSingleton.getInstance().getMessageCache().stats().hitCount())
+                    .add("hitRate",CacheSingleton.getInstance().getMessageCache().stats().hitRate())
+                    .build();
         } finally {
             Duration duration = Duration.between(start,Instant.now());
             LOGGER.info("{} operation completed in {} ms", fName,duration.toMillis());

@@ -1,5 +1,5 @@
 
-package me.beardedowl.caffeine;
+package me.beardedowl.caffeine.exception.handling;
 
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -12,7 +12,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
  * Provider for greeting message.
  */
 @ApplicationScoped
-public class GreetingProvider {
+public class GreetingController {
     private final AtomicReference<String> message = new AtomicReference<>();
     private final AtomicReference<Boolean> raiseException = new AtomicReference<>();
 
@@ -22,7 +22,7 @@ public class GreetingProvider {
      * @param message greeting to use
      */
     @Inject
-    public GreetingProvider(
+    public GreetingController(
             @ConfigProperty(name = "app.greeting") String message,
             @ConfigProperty(name = "app.raise.exception") Boolean raiseException)
     {

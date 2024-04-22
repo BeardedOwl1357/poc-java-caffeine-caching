@@ -1,4 +1,4 @@
-package me.beardedowl.caffeine;
+package me.beardedowl.caffeine.exception.handling;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;

@@ -1,6 +1,7 @@
 
 package me.beardedowl.caffeine;
 
+import me.beardedowl.caffeine.exception.handling.Message;
 import org.eclipse.microprofile.metrics.Counter;
 import org.eclipse.microprofile.metrics.MetricRegistry;
 import jakarta.inject.Inject;
@@ -11,8 +12,6 @@ import jakarta.ws.rs.core.MediaType;
 
 import io.helidon.microprofile.tests.junit5.HelidonTest;
 
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

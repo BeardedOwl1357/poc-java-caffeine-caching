@@ -1,5 +1,5 @@
 
-package me.beardedowl.caffeine;
+package me.beardedowl.caffeine.exception.handling;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -41,7 +41,7 @@ public class GreetResource {
     /**
      * The greeting message provider.
      */
-    private final GreetingProvider greetingProvider;
+    private final GreetingController greetingController;
 
     private static Logger LOGGER = LoggerFactory.getLogger(GreetResource.class.getName());
 
@@ -71,8 +71,8 @@ public class GreetResource {
      * @param greetingConfig the configured greeting message
      */
     @Inject
-    public GreetResource(GreetingProvider greetingConfig) {
-        this.greetingProvider = greetingConfig;
+    public GreetResource(GreetingController greetingConfig) {
+        this.greetingController = greetingConfig;
     }
 
     /**
@@ -142,8 +142,8 @@ public class GreetResource {
         String fName = "toggleRaiseException";
         Instant start = Instant.now();
         try{
-            boolean newValue = ! greetingProvider.getRaiseException().get();
-            greetingProvider.setRaiseException(newValue);
+            boolean newValue = ! greetingController.getRaiseException().get();
+            greetingController.setRaiseException(newValue);
             String message = String.format("New value of raiseException variable is : %s",newValue);
             return Response.status(Response.Status.OK).entity(message).build();
         }
@@ -164,7 +164,7 @@ public class GreetResource {
      * @throws InterruptedException
      */
     private Optional<Message> createResponse(String who) throws InterruptedException {
-        if(greetingProvider.getRaiseException().get()){
+        if(greetingController.getRaiseException().get()){
             LOGGER.error("Returning null value...");
             return Optional.empty();
         }
@@ -175,7 +175,7 @@ public class GreetResource {
         LOGGER.warn("Message not found in cache for {}. Building...",who);
         LOGGER.info("Thread sleeping for {} ms",3000);
         Thread.sleep(3000); //ms
-        String msg = String.format("%s %s!", greetingProvider.getMessage(), who);
+        String msg = String.format("%s %s!", greetingController.getMessage(), who);
 
         return Optional.of(new Message(msg));
     }
